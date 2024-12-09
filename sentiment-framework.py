@@ -17,7 +17,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support, con
 from sklearn.model_selection import GridSearchCV
 from sklearn.svm import LinearSVC
 
-# 设置日志
+# Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -31,13 +31,13 @@ def download_nltk_resource():
 
 
 class DataLoader:
-    """数据加载类：负责从处理好的CSV文件读取和组织数据"""
+    """Data loading class: responsible for reading and organizing data from processed CSV files"""
 
     def __init__(self, data_dir: str):
         """
-        初始化数据加载器
+        Initialize data loader
         Args:
-            data_dir: aclImdb目录的路径
+            data_dir: path to aclImdb directory
         """
         self.data_dir = Path(data_dir)
         self.csv_dir = self.data_dir / 'csv'
@@ -46,7 +46,7 @@ class DataLoader:
         self.train_preprocessed_file = self.csv_dir / 'train_preprocessed.csv'
         self.test_preprocessed_file = self.csv_dir / 'test_preprocessed.csv'
 
-        # 验证原始CSV目录是否存在
+        # Verify if original CSV directory exists
         if not self.train_file.exists() or not self.test_file.exists():
             raise FileNotFoundError(
                 "CSV files not found. Please run process_dataset.py first."
@@ -54,30 +54,30 @@ class DataLoader:
 
     def load_data(self, preprocessor: 'TextPreprocessor' = None) -> Tuple[List[str], List[int], List[str], List[int]]:
         """
-        加载训练集和测试集数据
-        如果预处理文件不存在，先创建预处理文件
+        Load training and test data
+        Create preprocessed files if they don't exist
         Args:
-            preprocessor: 文本预处理器实例
+            preprocessor: TextPreprocessor instance
         Returns:
-            训练文本, 训练标签, 测试文本, 测试标签
+            training texts, training labels, test texts, test labels
         """
-        # 如果预处理文件不存在，先创建
+        # Create preprocessed files if they don't exist
         if not self.train_preprocessed_file.exists() or not self.test_preprocessed_file.exists():
             if preprocessor is None:
-                raise ValueError("预处理文件不存在，需要提供TextPreprocessor实例进行预处理")
+                raise ValueError("Preprocessed files don't exist, TextPreprocessor instance required for preprocessing")
 
-            logger.info("预处理文件不存在，开始预处理...")
-            # 加载原始数据
+            logger.info("Preprocessed files don't exist, starting preprocessing...")
+            # Load original data
             train_df = pd.read_csv(self.train_file)
             test_df = pd.read_csv(self.test_file)
 
-            # 预处理文本
-            logger.info("预处理训练集...")
+            # Preprocess text
+            logger.info("Preprocessing training set...")
             train_processed = preprocessor.preprocess(train_df['review'].tolist())
-            logger.info("预处理测试集...")
+            logger.info("Preprocessing test set...")
             test_processed = preprocessor.preprocess(test_df['review'].tolist())
 
-            # 创建并保存预处理后的数据
+            # Create and save preprocessed data
             self.csv_dir.mkdir(parents=True, exist_ok=True)
 
             pd.DataFrame({
@@ -92,80 +92,80 @@ class DataLoader:
                 'sentiment': test_df['sentiment']
             }).to_csv(self.test_preprocessed_file, index=False)
 
-            logger.info(f"预处理数据已保存到: {self.csv_dir}")
+            logger.info(f"Preprocessed data saved to: {self.csv_dir}")
 
-        # 加载预处理后的数据
-        logger.info("加载预处理数据...")
+        # Load preprocessed data
+        logger.info("Loading preprocessed data...")
         train_df = pd.read_csv(self.train_preprocessed_file)
         test_df = pd.read_csv(self.test_preprocessed_file)
 
-        # 提取数据和标签
+        # Extract data and labels
         train_texts = train_df['processed_review'].tolist()
         train_labels = [1 if label == 'positive' else 0 for label in train_df['sentiment']]
         test_texts = test_df['processed_review'].tolist()
         test_labels = [1 if label == 'positive' else 0 for label in test_df['sentiment']]
 
-        logger.info(f"成功加载数据：{len(train_texts)} 训练样本，{len(test_texts)} 测试样本")
+        logger.info(f"Successfully loaded data: {len(train_texts)} training samples, {len(test_texts)} test samples")
         return train_texts, train_labels, test_texts, test_labels
 
 
 class TextPreprocessor:
-    """文本预处理类：实现所有文本清理和预处理步骤"""
+    """Text preprocessing class: implements all text cleaning and preprocessing steps"""
 
     def __init__(self):
-        """初始化预处理器，设置所需的工具"""
+        """Initialize preprocessor, set up required tools"""
         self.stemmer = PorterStemmer()
         self.stop_words = set(stopwords.words('english'))
         self.punctuation = set(string.punctuation)
-        self.pattern = re.compile(r'[^a-zA-Z\s]')  # 只保留字母和空格
+        self.pattern = re.compile(r'[^a-zA-Z\s]')  # Keep only letters and spaces
 
     def preprocess_text(self, text: str) -> str:
         """
-        预处理单个文本
+        Preprocess single text
         Args:
-            text: 原始文本
+            text: original text
         Returns:
-            处理后的文本
+            processed text
         """
-        # 转换小写
+        # Convert to lowercase
         text = text.lower()
 
-        # 去除标点符号和特殊字符
+        # Remove punctuation and special characters
         text = self.pattern.sub('', text)
 
-        # 分词
+        # Tokenize
         tokens = word_tokenize(text)
 
-        # 去除停用词和词干提取
+        # Remove stop words and perform stemming
         processed_tokens = [
             self.stemmer.stem(token)
             for token in tokens
-            if token not in self.stop_words and len(token) > 2  # 只保留长度大于2的词
+            if token not in self.stop_words and len(token) > 2  # Keep only words longer than 2 characters
         ]
 
         return ' '.join(processed_tokens)
 
     def preprocess(self, texts: List[str]) -> List[str]:
         """
-        对文本列表进行预处理
+        Preprocess list of texts
         Args:
-            texts: 原始文本列表
+            texts: list of original texts
         Returns:
-            处理后的文本列表
+            list of processed texts
         """
         return [self.preprocess_text(text) for text in texts]
 
 
 class WordEmbedding:
-    """词嵌入类：使用Skip-gram模型将文本转换为向量表示"""
+    """Word embedding class: converts text to vector representation using Skip-gram model"""
 
     def __init__(self, embedding_size: int = 100, window: int = 5, min_count: int = 5):
         """
-        初始化词嵌入模型
+        Initialize word embedding model
         Args:
-            embedding_size: 词向量维度
-            window: 上下文窗口大小
-            min_count: 最小词频
+            embedding_size: word vector dimension
+            window: context window size
+            min_count: minimum word frequency
         """
         self.embedding_size = embedding_size
         self.window = window
@@ -174,49 +174,49 @@ class WordEmbedding:
         self.vocab = None
 
     def _tokenize_texts(self, texts: List[str]) -> List[List[str]]:
-        """将文本列表转换为词列表的列表"""
+        """Convert list of texts to list of word lists"""
         return [text.split() for text in texts]
 
     def fit_transform(self, texts: List[str]) -> np.ndarray:
         """
-        训练词嵌入模型并转换文本
+        Train word embedding model and transform texts
         Args:
-            texts: 预处理后的文本列表
+            texts: list of preprocessed texts
         Returns:
-            文本的向量表示
+            vector representation of texts
         """
-        # 将文本转换为词列表
+        # Convert texts to word lists
         tokenized_texts = self._tokenize_texts(texts)
 
-        # 训练Skip-gram模型
+        # Train Skip-gram model
         self.model = Word2Vec(
             sentences=tokenized_texts,
             vector_size=self.embedding_size,
             window=self.window,
             min_count=self.min_count,
-            sg=1  # 使用Skip-gram模型
+            sg=1  # Use Skip-gram model
         )
 
-        # 构建词汇表
+        # Build vocabulary
         self.vocab = self.model.wv.key_to_index
 
-        # 计算文档向量（使用词向量的平均值）
+        # Calculate document vectors (using average of word vectors)
         return self._texts_to_vectors(texts)
 
     def transform(self, texts: List[str]) -> np.ndarray:
         """
-        使用训练好的模型转换新文本
+        Transform new texts using trained model
         Args:
-            texts: 预处理后的文本列表
+            texts: list of preprocessed texts
         Returns:
-            文本的向量表示
+            vector representation of texts
         """
         if self.model is None:
-            raise ValueError("模型未训练，请先调用fit_transform")
+            raise ValueError("Model not trained, please call fit_transform first")
         return self._texts_to_vectors(texts)
 
     def _texts_to_vectors(self, texts: List[str]) -> np.ndarray:
-        """将文本转换为向量表示"""
+        """Convert texts to vector representation"""
         vectors = np.zeros((len(texts), self.embedding_size))
 
         for i, text in enumerate(texts):
@@ -228,45 +228,45 @@ class WordEmbedding:
                     word_vectors.append(self.model.wv[word])
 
             if word_vectors:
-                # 使用词向量的平均值作为文档向量
+                # Use average of word vectors as document vector
                 vectors[i] = np.mean(word_vectors, axis=0)
 
         return vectors
 
 
 class SentimentClassifier:
-    """情感分类器：实现模型训练和预测"""
+    """Sentiment classifier: implements model training and prediction"""
 
     def __init__(self, model: BaseEstimator):
         """
-        初始化分类器
+        Initialize classifier
         Args:
-            model: sklearn分类器（如SVM、朴素贝叶斯等）
+            model: sklearn classifier (e.g., SVM, Naive Bayes)
         """
         self.model = model
         self.best_params = None
 
     def train(self, X: np.ndarray, y: np.ndarray, **kwargs) -> Dict[str, Any]:
         """
-        训练模型，使用网格搜索找到最佳参数
+        Train model, use grid search to find best parameters
         Args:
-            X: 特征矩阵
-            y: 标签向量
-            **kwargs: 其他训练参数
+            X: feature matrix
+            y: label vector
+            **kwargs: other training parameters
         Returns:
-            训练结果信息
+            training result information
         """
-        # 定义参数网格（根据具体分类器调整）
+        # Define parameter grid (adjust based on classifier)
         if isinstance(self.model, LinearSVC):
             param_grid = {
                 'C': [0.1, 1.0, 10.0],
                 'max_iter': [1000]
             }
         else:
-            # 可以添加其他分类器的参数网格
+            # Can add parameter grids for other classifiers
             param_grid = {}
 
-        # 使用网格搜索
+        # Use grid search
         grid_search = GridSearchCV(
             self.model,
             param_grid,
@@ -275,10 +275,10 @@ class SentimentClassifier:
             scoring='accuracy'
         )
 
-        # 训练模型
+        # Train model
         grid_search.fit(X, y)
 
-        # 保存最佳参数
+        # Save best parameters
         self.best_params = grid_search.best_params_
         self.model = grid_search.best_estimator_
 
@@ -289,36 +289,36 @@ class SentimentClassifier:
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
-        预测新样本
+        Predict new samples
         Args:
-            X: 特征矩阵
+            X: feature matrix
         Returns:
-            预测结果
+            prediction results
         """
         return self.model.predict(X)
 
 
 class ModelEvaluator:
-    """模型评估器：计算各种评估指标"""
+    """Model evaluator: calculate various evaluation metrics"""
 
     @staticmethod
     def evaluate(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, Any]:
         """
-        评估模型性能
+        Evaluate model performance
         Args:
-            y_true: 真实标签
-            y_pred: 预测标签
+            y_true: true labels
+            y_pred: predicted labels
         Returns:
-            包含各种评估指标的字典
+            dictionary containing various evaluation metrics
         """
-        # 计算基本指标
+        # Calculate basic metrics
         accuracy = accuracy_score(y_true, y_pred)
         precision, recall, f1, _ = precision_recall_fscore_support(
             y_true, y_pred, average='binary'
         )
         conf_matrix = confusion_matrix(y_true, y_pred)
 
-        # 计算混淆矩阵中的具体指标
+        # Calculate specific metrics from confusion matrix
         tn, fp, fn, tp = conf_matrix.ravel()
 
         return {
@@ -344,33 +344,33 @@ def main():
     EMBEDDING_SIZE = args.embedding_size
 
     try:
-        # 1. 初始化数据加载器和预处理器
-        logger.info("初始化...")
+        # 1. Initialize data loader and preprocessor
+        logger.info("Initializing...")
         data_loader = DataLoader(DATA_DIR)
         preprocessor = TextPreprocessor()
 
-        # 2. 加载数据（如果存在预处理文件则直接加载，否则进行预处理）
-        logger.info("开始加载数据...")
+        # 2. Load data (load directly from preprocessed files if they exist, otherwise preprocess)
+        logger.info("Starting data loading...")
         train_texts, train_labels, test_texts, test_labels = data_loader.load_data(preprocessor)
 
-        # 3. 词嵌入
-        logger.info("开始词嵌入转换...")
+        # 3. Word embedding
+        logger.info("Starting word embedding conversion...")
         embedder = WordEmbedding(embedding_size=EMBEDDING_SIZE)
         X_train = embedder.fit_transform(train_texts)
         X_test = embedder.transform(test_texts)
 
-        # 4. 模型训练
-        logger.info("开始训练模型...")
+        # 4. Model training
+        logger.info("Starting model training...")
         classifier = SentimentClassifier(LinearSVC())
         train_results = classifier.train(X_train, train_labels)
 
-        # 5. 模型评估
-        logger.info("开始评估模型...")
+        # 5. Model evaluation
+        logger.info("Starting model evaluation...")
         y_pred = classifier.predict(X_test)
         evaluation_results = ModelEvaluator.evaluate(test_labels, y_pred)
 
-        # 6. 输出结果
-        logger.info("评估结果：")
+        # 6. Output results
+        logger.info("Evaluation results:")
         for metric, value in evaluation_results.items():
             if isinstance(value, np.ndarray):
                 logger.info(f"{metric}:\n{value}")
@@ -378,7 +378,7 @@ def main():
                 logger.info(f"{metric}: {value:.4f}")
 
     except Exception as e:
-        logger.error(f"程序执行出错：{str(e)}")
+        logger.error(f"Program execution error: {str(e)}")
         raise
 
 
