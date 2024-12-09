@@ -16,7 +16,8 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support, con
 from sklearn.model_selection import GridSearchCV
 from sklearn.svm import LinearSVC
 from sklearn.linear_model import LogisticRegression
-from get_embeddings import get_bert_embeddings, get_fasttext_embeddings, get_word2vec_embeddings, train_fasttext
+from get_embeddings import get_fasttext_embeddings, get_word2vec_embeddings, train_word2vec, train_fasttext, \
+    get_bert_embeddings
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
@@ -281,18 +282,21 @@ def generate_embeddings(
         test_texts: list of test texts
         embedding_size: dimension of embeddings (default: 100)
     Returns:
-        dictionary with embedding results
+        dictionary with embedding results for each method
     """
     embeddings_dict = {}
 
     # Word2Vec embeddings
     logger.info("\nGenerating Word2Vec embeddings...")
+    # Train model on training data
     start_time = time.time()
-    word2vec_train = get_word2vec_embeddings(train_texts, embedding_size=embedding_size)
+    word2vec_model = train_word2vec(train_texts, embedding_size)
+    word2vec_train = get_word2vec_embeddings(train_texts, word2vec_model, embedding_size)
     train_time = time.time() - start_time
 
+    # Use trained model for test data
     start_time = time.time()
-    word2vec_test = get_word2vec_embeddings(test_texts, embedding_size=embedding_size)
+    word2vec_test = get_word2vec_embeddings(test_texts, word2vec_model, embedding_size)
     inference_time = time.time() - start_time
 
     embeddings_dict['Word2Vec'] = {
@@ -304,11 +308,13 @@ def generate_embeddings(
 
     # FastText embeddings
     logger.info("\nGenerating FastText embeddings...")
+    # Train model on training data
     start_time = time.time()
-    fasttext_model = train_fasttext(train_texts, embedding_size=embedding_size)
+    fasttext_model = train_fasttext(train_texts, embedding_size)
     fasttext_train = get_fasttext_embeddings(train_texts, fasttext_model, embedding_size)
     train_time = time.time() - start_time
 
+    # Use trained model for test data
     start_time = time.time()
     fasttext_test = get_fasttext_embeddings(test_texts, fasttext_model, embedding_size)
     inference_time = time.time() - start_time
@@ -320,22 +326,22 @@ def generate_embeddings(
         'inference_time': inference_time
     }
 
-    # BERT embeddings
-    logger.info("\nGenerating BERT embeddings...")
-    start_time = time.time()
-    bert_train = get_bert_embeddings(train_texts, embedding_size)
-    train_time = time.time() - start_time
-
-    start_time = time.time()
-    bert_test = get_bert_embeddings(test_texts, embedding_size)
-    inference_time = time.time() - start_time
-
-    embeddings_dict['BERT'] = {
-        'train': bert_train,
-        'test': bert_test,
-        'train_time': train_time,
-        'inference_time': inference_time
-    }
+    # BERT embeddings (using pre-trained model)
+    # logger.info("\nGenerating BERT embeddings...")
+    # start_time = time.time()
+    # bert_train = get_bert_embeddings(train_texts, embedding_size)
+    # train_time = time.time() - start_time
+    #
+    # start_time = time.time()
+    # bert_test = get_bert_embeddings(test_texts, embedding_size)
+    # inference_time = time.time() - start_time
+    #
+    # embeddings_dict['BERT'] = {
+    #     'train': bert_train,
+    #     'test': bert_test,
+    #     'train_time': train_time,
+    #     'inference_time': inference_time
+    # }
 
     return embeddings_dict
 
@@ -452,81 +458,95 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    try:
-        # 1. Initialize components
-        logger.info("Initializing components...")
-        data_loader = DataLoader(args.base_dir)
-        preprocessor = TextPreprocessor()
+    # 1. Initialize components
+    logger.info("Initializing components...")
+    data_loader = DataLoader(args.base_dir)
+    preprocessor = TextPreprocessor()
 
-        # 2. Load and preprocess data
-        logger.info("Loading and preprocessing data...")
-        train_texts, train_labels, test_texts, test_labels = data_loader.load_data(preprocessor)
+    # 2. Load and preprocess data
+    logger.info("Loading and preprocessing data...")
+    train_texts, train_labels, test_texts, test_labels = data_loader.load_data(preprocessor)
 
-        # 3. Generate embeddings using different techniques
-        logger.info("Generating embeddings using different techniques...")
-        embeddings_dict = generate_embeddings(
-            train_texts,
-            test_texts,
-            embedding_size=args.embedding_size
-        )
-        # 4. Initialize classifiers
-        classifiers = [
-            SentimentClassifier(LinearSVC(), "SVM"),
-            SentimentClassifier(LogisticRegression(), "Logistic Regression"),
-        ]
+    # 3. Generate embeddings using different techniques
+    logger.info("Generating embeddings using different techniques...")
+    embeddings_dict = generate_embeddings(
+        train_texts,
+        test_texts,
+        embedding_size=args.embedding_size
+    )
+    # 4. Initialize classifiers
+    classifiers = [
+        SentimentClassifier(LinearSVC(), "SVM"),
+        SentimentClassifier(LogisticRegression(), "Logistic Regression"),
+    ]
 
-        # 5. Evaluate each embedding technique with each classifier
-        logger.info("Evaluating embedding techniques with different classifiers...")
-        all_evaluation_results = []  # For confusion matrix visualization
+    # 5. Evaluate each embedding technique with each classifier
+    logger.info("Evaluating embedding techniques with different classifiers...")
+    all_evaluation_results = []  # For confusion matrix visualization
 
-        for embed_name, embed_data in embeddings_dict.items():
-            for classifier in classifiers:
-                model_name = f"{embed_name}-{classifier.model_name}"
-                logger.info(f"Training {model_name}...")
+    for embed_name, embed_data in embeddings_dict.items():
+        for classifier in classifiers:
+            model_name = f"{embed_name}-{classifier.model_name}"
+            logger.info(f"Training {model_name}...")
 
-                # Train classifier
-                start_time = time.time()
-                train_results = classifier.train(embed_data['train'], train_labels)
-                training_time = time.time() - start_time
+            # Train classifier
+            start_time = time.time()
+            train_results = classifier.train(embed_data['train'], train_labels)
+            training_time = time.time() - start_time
 
-                # Make predictions
-                start_time = time.time()
-                y_pred = classifier.predict(embed_data['test'])
-                inference_time = time.time() - start_time
+            # Make predictions
+            start_time = time.time()
+            y_pred = classifier.predict(embed_data['test'])
+            inference_time = time.time() - start_time
 
-                # Evaluate results
-                eval_result = ModelEvaluator.evaluate(test_labels, y_pred, model_name)
-                eval_result['training_time'] = training_time
-                eval_result['inference_time'] = inference_time
-                eval_result['embedding_name'] = embed_name
+            # Evaluate results
+            eval_result = ModelEvaluator.evaluate(test_labels, y_pred, model_name)
+            eval_result['training_time'] = training_time
+            eval_result['inference_time'] = inference_time
+            eval_result['embedding_name'] = embed_name
 
-                all_evaluation_results.append(eval_result)
+            all_evaluation_results.append(eval_result)
 
-                # Log individual model results
-                logger.info(f"Results for {model_name}:")
-                for metric, value in eval_result.items():
-                    if isinstance(value, (np.ndarray, str)):
-                        logger.info(f"{metric}:\n{value}")
-                    else:
-                        logger.info(f"{metric}: {value:.4f}")
+            # Log individual model results
+            logger.info(f"Results for {model_name}:")
+            for metric, value in eval_result.items():
+                if isinstance(value, (np.ndarray, str)):
+                    logger.info(f"{metric}:\n{value}")
+                else:
+                    logger.info(f"{metric}: {value:.4f}")
 
-        # 6. Create performance comparisons and visualizations
-        logger.info("\nCreating performance visualizations...")
+    # 6. Create performance comparisons and visualizations
+    logger.info("\nCreating performance visualizations...")
 
-        # Confusion matrices
-        confusion_matrices_path = output_dir / 'confusion_matrices.png'
-        plot_confusion_matrices(all_evaluation_results, str(confusion_matrices_path))
+    # Confusion matrices
+    confusion_matrices_path = output_dir / 'confusion_matrices.png'
+    plot_confusion_matrices(all_evaluation_results, str(confusion_matrices_path))
 
-        # Performance comparison
-        performance_comparison_path = output_dir / 'performance_comparison.png'
-        plot_performance_comparison(all_evaluation_results, str(performance_comparison_path))
+    # Performance comparison
+    performance_comparison_path = output_dir / 'performance_comparison.png'
+    plot_performance_comparison(all_evaluation_results, str(performance_comparison_path))
 
-        # TODO: 8. Print summary of best performers
-        logger.info(f"\nAll outputs saved in: {output_dir}")
+    # 8. Save performance summary
+    results_df = pd.DataFrame([{
+        'Model': result['model_name'],
+        'Embedding': result['embedding_name'],
+        'Accuracy': f"{result['accuracy']:.4f}",
+        'Precision': f"{result['precision']:.4f}",
+        'Recall': f"{result['recall']:.4f}",
+        'F1': f"{result['f1_score']:.4f}",
+        'Train_Time': f"{result['training_time']:.4f}",
+        'Infer_Time': f"{result['inference_time']:.4f}"
+    } for result in all_evaluation_results])
 
-    except Exception as e:
-        logger.error(f"Program execution error: {str(e)}")
-        raise
+    # Save results
+    results_path = output_dir / 'model_comparison_results.csv'
+    results_df.to_csv(results_path, index=False)
+    logger.info(f"\nResults saved to: {results_path}")
+
+    # Log best model
+    best_model = results_df.loc[results_df['Accuracy'].astype(float).idxmax()]
+    logger.info(f"Best model (accuracy): {best_model['Model']} ({best_model['Accuracy']})")
+    logger.info(f"\nAll outputs saved in: {output_dir}")
 
 
 if __name__ == "__main__":

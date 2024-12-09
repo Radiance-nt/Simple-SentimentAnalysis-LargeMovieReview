@@ -1,4 +1,5 @@
 import os
+import argparse
 import re
 import string
 import pandas as pd
@@ -6,7 +7,6 @@ from typing import Tuple
 import logging
 from pathlib import Path
 
-# 设置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -87,8 +87,6 @@ class IMDBProcessor:
 
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser(description='Process IMDB dataset into CSV format')
     parser.add_argument('--base_dir', default='./aclImdb', help='Path to aclImdb directory')
     args = parser.parse_args()
