@@ -16,6 +16,9 @@ from gensim.models import Word2Vec
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
 from sklearn.model_selection import GridSearchCV
 from sklearn.svm import LinearSVC
+from sklearn.linear_model import LogisticRegression
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Set up logging
 logging.basicConfig(
@@ -234,16 +237,118 @@ class WordEmbedding:
         return vectors
 
 
+def plot_performance_comparison(results: List[Dict[str, Any]], save_path: str = None):
+    """
+    Create a bar plot comparing performance metrics across different models
+    Args:
+        results: list of evaluation results for different models
+        save_path: path to save the plot (optional)
+    """
+    # Extract metrics for comparison
+    performance_data = []
+    for result in results:
+        performance_data.append({
+            'Model': result['model_name'],
+            'Accuracy': result['accuracy'],
+            'Precision': result['precision'],
+            'Recall': result['recall'],
+            'F1 Score': result['f1_score']
+        })
+
+    # Convert to DataFrame for easier plotting
+    df = pd.DataFrame(performance_data)
+
+    # Set up the plot style
+    plt.style.use('seaborn')
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Create bar plot
+    metrics = ['Accuracy', 'Precision', 'Recall', 'F1 Score']
+    x = np.arange(len(df['Model']))
+    width = 0.2
+
+    # Plot bars for each metric
+    for i, metric in enumerate(metrics):
+        bars = ax.bar(x + i * width, df[metric], width, label=metric)
+
+        # Add value labels on top of bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2., height,
+                    f'{height:.3f}',
+                    ha='center', va='bottom')
+
+    # Customize plot
+    ax.set_ylabel('Score')
+    ax.set_title('Model Performance Comparison')
+    ax.set_xticks(x + width * 1.5)
+    ax.set_xticklabels(df['Model'])
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # Adjust layout to prevent label cutoff
+    plt.tight_layout()
+
+    # Save plot if path provided
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+
+    plt.show()
+
+
+def plot_confusion_matrices(results: List[Dict[str, Any]], save_path: str = None):
+    """
+    Create confusion matrix plots for all models
+    Args:
+        results: list of evaluation results for different models
+        save_path: path to save the plot (optional)
+    """
+    n_models = len(results)
+    fig, axes = plt.subplots(1, n_models, figsize=(6 * n_models, 5))
+
+    if n_models == 1:
+        axes = [axes]
+
+    plt.style.use('seaborn')
+
+    for ax, result in zip(axes, results):
+        conf_matrix = result['confusion_matrix']
+        model_name = result['model_name']
+
+        # Create confusion matrix heatmap
+        sns.heatmap(
+            conf_matrix,
+            annot=True,
+            fmt='d',
+            cmap='Blues',
+            ax=ax,
+            xticklabels=['Negative', 'Positive'],
+            yticklabels=['Negative', 'Positive']
+        )
+
+        ax.set_title(f'Confusion Matrix - {model_name}\nAccuracy: {result["accuracy"]:.3f}')
+        ax.set_xlabel('Predicted Label')
+        ax.set_ylabel('True Label')
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+
+    plt.show()
+
+
 class SentimentClassifier:
     """Sentiment classifier: implements model training and prediction"""
 
-    def __init__(self, model: BaseEstimator):
+    def __init__(self, model: BaseEstimator, model_name: str):
         """
         Initialize classifier
         Args:
             model: sklearn classifier (e.g., SVM, Naive Bayes)
+            model_name: name of the model for identification
         """
         self.model = model
+        self.model_name = model_name
         self.best_params = None
 
     def train(self, X: np.ndarray, y: np.ndarray, **kwargs) -> Dict[str, Any]:
@@ -256,14 +361,18 @@ class SentimentClassifier:
         Returns:
             training result information
         """
-        # Define parameter grid (adjust based on classifier)
+        # Define parameter grid based on classifier type
         if isinstance(self.model, LinearSVC):
             param_grid = {
                 'C': [0.1, 1.0, 10.0],
                 'max_iter': [1000]
             }
+        elif isinstance(self.model, LogisticRegression):
+            param_grid = {
+                'C': [0.1, 1.0, 10.0],
+                'max_iter': [1000]
+            }
         else:
-            # Can add parameter grids for other classifiers
             param_grid = {}
 
         # Use grid search
@@ -283,6 +392,7 @@ class SentimentClassifier:
         self.model = grid_search.best_estimator_
 
         return {
+            'model_name': self.model_name,
             'best_params': self.best_params,
             'best_score': grid_search.best_score_
         }
@@ -302,12 +412,13 @@ class ModelEvaluator:
     """Model evaluator: calculate various evaluation metrics"""
 
     @staticmethod
-    def evaluate(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, Any]:
+    def evaluate(y_true: np.ndarray, y_pred: np.ndarray, model_name: str) -> Dict[str, Any]:
         """
         Evaluate model performance
         Args:
             y_true: true labels
             y_pred: predicted labels
+            model_name: name of the model being evaluated
         Returns:
             dictionary containing various evaluation metrics
         """
@@ -322,6 +433,7 @@ class ModelEvaluator:
         tn, fp, fn, tp = conf_matrix.ravel()
 
         return {
+            'model_name': model_name,
             'accuracy': accuracy,
             'precision': precision,
             'recall': recall,
@@ -338,7 +450,12 @@ def main():
     parser = argparse.ArgumentParser(description='Process IMDB dataset into CSV format')
     parser.add_argument('--base_dir', default='./aclImdb', help='Path to aclImdb directory')
     parser.add_argument('--embedding_size', type=int, default=100, help='Word embedding dimension size')
+    parser.add_argument('--output_dir', default='./outputs', help='Directory to save outputs')
     args = parser.parse_args()
+
+    # Create output directory if it doesn't exist
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     DATA_DIR = args.base_dir
     EMBEDDING_SIZE = args.embedding_size
@@ -349,7 +466,7 @@ def main():
         data_loader = DataLoader(DATA_DIR)
         preprocessor = TextPreprocessor()
 
-        # 2. Load data (load directly from preprocessed files if they exist, otherwise preprocess)
+        # 2. Load data
         logger.info("Starting data loading...")
         train_texts, train_labels, test_texts, test_labels = data_loader.load_data(preprocessor)
 
@@ -359,23 +476,46 @@ def main():
         X_train = embedder.fit_transform(train_texts)
         X_test = embedder.transform(test_texts)
 
-        # 4. Model training
-        logger.info("Starting model training...")
-        classifier = SentimentClassifier(LinearSVC())
-        train_results = classifier.train(X_train, train_labels)
+        # 4. Initialize different classifiers
+        classifiers = [
+            SentimentClassifier(LinearSVC(), "SVM"),
+            SentimentClassifier(LogisticRegression(), "Logistic Regression"),
+        ]
 
-        # 5. Model evaluation
-        logger.info("Starting model evaluation...")
-        y_pred = classifier.predict(X_test)
-        evaluation_results = ModelEvaluator.evaluate(test_labels, y_pred)
+        # 5. Train and evaluate all classifiers
+        evaluation_results = []
 
-        # 6. Output results
-        logger.info("Evaluation results:")
-        for metric, value in evaluation_results.items():
-            if isinstance(value, np.ndarray):
-                logger.info(f"{metric}:\n{value}")
-            else:
-                logger.info(f"{metric}: {value:.4f}")
+        for classifier in classifiers:
+            logger.info(f"Training {classifier.model_name}...")
+            train_results = classifier.train(X_train, train_labels)
+
+            logger.info(f"Evaluating {classifier.model_name}...")
+            y_pred = classifier.predict(X_test)
+            eval_result = ModelEvaluator.evaluate(test_labels, y_pred, classifier.model_name)
+            evaluation_results.append(eval_result)
+
+            # Log individual model results
+            logger.info(f"\nResults for {classifier.model_name}:")
+            for metric, value in eval_result.items():
+                if isinstance(value, np.ndarray):
+                    logger.info(f"{metric}:\n{value}")
+                elif isinstance(value, str):
+                    logger.info(f"{metric}: {value}")
+                else:
+                    logger.info(f"{metric}: {value:.4f}")
+
+        # 6. Create and save visualizations
+        logger.info("Creating visualizations...")
+
+        # Plot and save confusion matrices
+        confusion_matrices_path = output_dir / 'confusion_matrices.png'
+        plot_confusion_matrices(evaluation_results, str(confusion_matrices_path))
+
+        # Plot and save performance comparison
+        performance_comparison_path = output_dir / 'performance_comparison.png'
+        plot_performance_comparison(evaluation_results, str(performance_comparison_path))
+
+        logger.info(f"Visualizations saved in: {output_dir}")
 
     except Exception as e:
         logger.error(f"Program execution error: {str(e)}")
