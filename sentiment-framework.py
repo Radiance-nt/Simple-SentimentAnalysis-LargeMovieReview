@@ -1,3 +1,4 @@
+import argparse
 import os
 import numpy as np
 from typing import List, Tuple, Dict, Any
@@ -14,6 +15,7 @@ import re
 from gensim.models import Word2Vec
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
 from sklearn.model_selection import GridSearchCV
+from sklearn.svm import LinearSVC
 
 # 设置日志
 logging.basicConfig(
@@ -21,6 +23,11 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def download_nltk_resource():
+    nltk.download('stopwords')
+    nltk.download('punkt')
 
 
 class DataLoader:
@@ -36,81 +43,70 @@ class DataLoader:
         self.csv_dir = self.data_dir / 'csv'
         self.train_file = self.csv_dir / 'train.csv'
         self.test_file = self.csv_dir / 'test.csv'
+        self.train_preprocessed_file = self.csv_dir / 'train_preprocessed.csv'
+        self.test_preprocessed_file = self.csv_dir / 'test_preprocessed.csv'
 
-        # 验证文件是否存在
+        # 验证原始CSV目录是否存在
         if not self.train_file.exists() or not self.test_file.exists():
             raise FileNotFoundError(
                 "CSV files not found. Please run process_dataset.py first."
             )
 
-    def load_data(self) -> Tuple[List[str], List[int], List[str], List[int]]:
+    def load_data(self, preprocessor: 'TextPreprocessor' = None) -> Tuple[List[str], List[int], List[str], List[int]]:
         """
         加载训练集和测试集数据
+        如果预处理文件不存在，先创建预处理文件
+        Args:
+            preprocessor: 文本预处理器实例
         Returns:
             训练文本, 训练标签, 测试文本, 测试标签
         """
-        logger.info("Loading training data...")
-        train_df = pd.read_csv(self.train_file)
+        # 如果预处理文件不存在，先创建
+        if not self.train_preprocessed_file.exists() or not self.test_preprocessed_file.exists():
+            if preprocessor is None:
+                raise ValueError("预处理文件不存在，需要提供TextPreprocessor实例进行预处理")
 
-        logger.info("Loading test data...")
-        test_df = pd.read_csv(self.test_file)
+            logger.info("预处理文件不存在，开始预处理...")
+            # 加载原始数据
+            train_df = pd.read_csv(self.train_file)
+            test_df = pd.read_csv(self.test_file)
 
-        # 转换标签为数值
-        label_map = {'positive': 1, 'negative': 0}
+            # 预处理文本
+            logger.info("预处理训练集...")
+            train_processed = preprocessor.preprocess(train_df['review'].tolist())
+            logger.info("预处理测试集...")
+            test_processed = preprocessor.preprocess(test_df['review'].tolist())
+
+            # 创建并保存预处理后的数据
+            self.csv_dir.mkdir(parents=True, exist_ok=True)
+
+            pd.DataFrame({
+                'review': train_df['review'],
+                'processed_review': train_processed,
+                'sentiment': train_df['sentiment']
+            }).to_csv(self.train_preprocessed_file, index=False)
+
+            pd.DataFrame({
+                'review': test_df['review'],
+                'processed_review': test_processed,
+                'sentiment': test_df['sentiment']
+            }).to_csv(self.test_preprocessed_file, index=False)
+
+            logger.info(f"预处理数据已保存到: {self.csv_dir}")
+
+        # 加载预处理后的数据
+        logger.info("加载预处理数据...")
+        train_df = pd.read_csv(self.train_preprocessed_file)
+        test_df = pd.read_csv(self.test_preprocessed_file)
 
         # 提取数据和标签
-        train_texts = train_df['review'].tolist()
-        train_labels = [label_map[label] for label in train_df['sentiment']]
+        train_texts = train_df['processed_review'].tolist()
+        train_labels = [1 if label == 'positive' else 0 for label in train_df['sentiment']]
+        test_texts = test_df['processed_review'].tolist()
+        test_labels = [1 if label == 'positive' else 0 for label in test_df['sentiment']]
 
-        test_texts = test_df['review'].tolist()
-        test_labels = [label_map[label] for label in test_df['sentiment']]
-
-        logger.info(f"Loaded {len(train_texts)} training samples and {len(test_texts)} test samples")
-
-        # 验证数据完整性
-        self._validate_data(train_texts, train_labels, test_texts, test_labels)
-
+        logger.info(f"成功加载数据：{len(train_texts)} 训练样本，{len(test_texts)} 测试样本")
         return train_texts, train_labels, test_texts, test_labels
-
-    def _validate_data(
-            self,
-            train_texts: List[str],
-            train_labels: List[int],
-            test_texts: List[str],
-            test_labels: List[int]
-    ) -> None:
-        """验证数据集的完整性和平衡性"""
-        # 检查数量是否匹配
-        assert len(train_texts) == len(train_labels), "训练集文本和标签数量不匹配"
-        assert len(test_texts) == len(test_labels), "测试集文本和标签数量不匹配"
-
-        # 检查标签是否为0和1
-        assert set(train_labels) == {0, 1}, "训练集标签不是二元的"
-        assert set(test_labels) == {0, 1}, "测试集标签不是二元的"
-
-        # 检查数据集是否平衡
-        train_pos = sum(train_labels)
-        train_neg = len(train_labels) - train_pos
-        test_pos = sum(test_labels)
-        test_neg = len(test_labels) - test_pos
-
-        logger.info("数据集统计：")
-        logger.info(f"训练集：正面评价 {train_pos}，负面评价 {train_neg}")
-        logger.info(f"测试集：正面评价 {test_pos}，负面评价 {test_neg}")
-
-    def get_data_info(self) -> dict:
-        """获取数据集的基本信息"""
-        train_df = pd.read_csv(self.train_file)
-        test_df = pd.read_csv(self.test_file)
-
-        return {
-            'train_samples': len(train_df),
-            'test_samples': len(test_df),
-            'train_positive': (train_df['sentiment'] == 'positive').sum(),
-            'train_negative': (train_df['sentiment'] == 'negative').sum(),
-            'test_positive': (test_df['sentiment'] == 'positive').sum(),
-            'test_negative': (test_df['sentiment'] == 'negative').sum(),
-        }
 
 
 class TextPreprocessor:
@@ -339,42 +335,41 @@ class ModelEvaluator:
 
 
 def main():
-    """主函数：组织整个工作流程"""
+    parser = argparse.ArgumentParser(description='Process IMDB dataset into CSV format')
+    parser.add_argument('--base_dir', default='./aclImdb', help='Path to aclImdb directory')
+    parser.add_argument('--embedding_size', type=int, default=100, help='Word embedding dimension size')
+    args = parser.parse_args()
 
-    # 1. 设置参数
-    DATA_DIR = "path/to/aclImdb"
-    EMBEDDING_SIZE = 100
+    DATA_DIR = args.base_dir
+    EMBEDDING_SIZE = args.embedding_size
 
     try:
-        # 2. 加载数据
-        logger.info("开始加载数据...")
+        # 1. 初始化数据加载器和预处理器
+        logger.info("初始化...")
         data_loader = DataLoader(DATA_DIR)
-        train_texts, train_labels, test_texts, test_labels = data_loader.load_data()
-
-        # 3. 文本预处理
-        logger.info("开始预处理文本...")
         preprocessor = TextPreprocessor()
-        train_texts_processed = preprocessor.preprocess(train_texts)
-        test_texts_processed = preprocessor.preprocess(test_texts)
 
-        # 4. 词嵌入
+        # 2. 加载数据（如果存在预处理文件则直接加载，否则进行预处理）
+        logger.info("开始加载数据...")
+        train_texts, train_labels, test_texts, test_labels = data_loader.load_data(preprocessor)
+
+        # 3. 词嵌入
         logger.info("开始词嵌入转换...")
         embedder = WordEmbedding(embedding_size=EMBEDDING_SIZE)
-        X_train = embedder.fit_transform(train_texts_processed)
-        X_test = embedder.transform(test_texts_processed)
+        X_train = embedder.fit_transform(train_texts)
+        X_test = embedder.transform(test_texts)
 
-        # 5. 模型训练
+        # 4. 模型训练
         logger.info("开始训练模型...")
-        from sklearn.svm import LinearSVC
         classifier = SentimentClassifier(LinearSVC())
         train_results = classifier.train(X_train, train_labels)
 
-        # 6. 模型评估
+        # 5. 模型评估
         logger.info("开始评估模型...")
         y_pred = classifier.predict(X_test)
         evaluation_results = ModelEvaluator.evaluate(test_labels, y_pred)
 
-        # 7. 输出结果
+        # 6. 输出结果
         logger.info("评估结果：")
         for metric, value in evaluation_results.items():
             if isinstance(value, np.ndarray):
@@ -388,4 +383,5 @@ def main():
 
 
 if __name__ == "__main__":
+    download_nltk_resource()
     main()
