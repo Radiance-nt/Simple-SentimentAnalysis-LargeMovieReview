@@ -160,106 +160,6 @@ class TextPreprocessor:
         return [self.preprocess_text(text) for text in texts]
 
 
-def plot_performance_comparison(results: List[Dict[str, Any]], save_path: str = None):
-    """
-    Create a bar plot comparing performance metrics across different models
-    Args:
-        results: list of evaluation results for different models
-        save_path: path to save the plot (optional)
-    """
-    # Extract metrics for comparison
-    performance_data = []
-    for result in results:
-        performance_data.append({
-            'Model': result['model_name'],
-            'Accuracy': result['accuracy'],
-            'Precision': result['precision'],
-            'Recall': result['recall'],
-            'F1 Score': result['f1_score']
-        })
-
-    # Convert to DataFrame for easier plotting
-    df = pd.DataFrame(performance_data)
-
-    # Set up the plot style
-    plt.style.use('seaborn')
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    # Create bar plot
-    metrics = ['Accuracy', 'Precision', 'Recall', 'F1 Score']
-    x = np.arange(len(df['Model']))
-    width = 0.2
-
-    # Plot bars for each metric
-    for i, metric in enumerate(metrics):
-        bars = ax.bar(x + i * width, df[metric], width, label=metric)
-
-        # Add value labels on top of bars
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width() / 2., height,
-                    f'{height:.3f}',
-                    ha='center', va='bottom')
-
-    # Customize plot
-    ax.set_ylabel('Score')
-    ax.set_title('Model Performance Comparison')
-    ax.set_xticks(x + width * 1.5)
-    ax.set_xticklabels(df['Model'])
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax.grid(True, alpha=0.3, axis='y')
-
-    # Adjust layout to prevent label cutoff
-    plt.tight_layout()
-
-    # Save plot if path provided
-    if save_path:
-        plt.savefig(save_path, bbox_inches='tight', dpi=300)
-
-    plt.show()
-
-
-def plot_confusion_matrices(results: List[Dict[str, Any]], save_path: str = None):
-    """
-    Create confusion matrix plots for all models
-    Args:
-        results: list of evaluation results for different models
-        save_path: path to save the plot (optional)
-    """
-    n_models = len(results)
-    fig, axes = plt.subplots(1, n_models, figsize=(6 * n_models, 5))
-
-    if n_models == 1:
-        axes = [axes]
-
-    plt.style.use('seaborn')
-
-    for ax, result in zip(axes, results):
-        conf_matrix = result['confusion_matrix']
-        model_name = result['model_name']
-
-        # Create confusion matrix heatmap
-        sns.heatmap(
-            conf_matrix,
-            annot=True,
-            fmt='d',
-            cmap='Blues',
-            ax=ax,
-            xticklabels=['Negative', 'Positive'],
-            yticklabels=['Negative', 'Positive']
-        )
-
-        ax.set_title(f'Confusion Matrix - {model_name}\nAccuracy: {result["accuracy"]:.3f}')
-        ax.set_xlabel('Predicted Label')
-        ax.set_ylabel('True Label')
-
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path, bbox_inches='tight', dpi=300)
-
-    plt.show()
-
-
 class SentimentClassifier:
     """Sentiment classifier: implements model training and prediction"""
 
@@ -369,69 +269,6 @@ class ModelEvaluator:
         }
 
 
-class EmbeddingEvaluator:
-    """Evaluates and compares performance of different embedding techniques"""
-
-    @staticmethod
-    def compare_embeddings(
-            embedding_results: List[Dict[str, Any]]
-    ) -> pd.DataFrame:
-        """Compare performance metrics across embedding techniques"""
-        comparison_data = []
-
-        for result in embedding_results:
-            comparison_data.append({
-                'Embedding': result['embedding_name'],
-                'Accuracy': result['accuracy'],
-                'F1 Score': result['f1_score'],
-                'Training Time': result['training_time'],
-                'Inference Time': result['inference_time']
-            })
-
-        return pd.DataFrame(comparison_data)
-
-    @staticmethod
-    def plot_performance_metrics(
-            comparison_df: pd.DataFrame,
-            save_path: str = None
-    ):
-        """Create visualization of performance metrics"""
-        # Prepare the data
-        performance_data = comparison_df.melt(
-            id_vars=['Embedding'],
-            value_vars=['Accuracy', 'F1 Score', 'Training Time', 'Inference Time']
-        )
-
-        # Create the plot
-        plt.figure(figsize=(15, 6))
-
-        # Plot metrics in two separate subplots
-        plt.subplot(1, 2, 1)
-        performance_plot = sns.barplot(
-            data=performance_data[performance_data['variable'].isin(['Accuracy', 'F1 Score'])],
-            x='Embedding',
-            y='value',
-            hue='variable'
-        )
-        plt.title('Performance Metrics by Embedding Technique')
-        plt.ylabel('Score')
-
-        plt.subplot(1, 2, 2)
-        time_plot = sns.barplot(
-            data=performance_data[performance_data['variable'].isin(['Training Time', 'Inference Time'])],
-            x='Embedding',
-            y='value',
-            hue='variable'
-        )
-        plt.title('Time Comparison by Embedding Technique')
-        plt.ylabel('Time (seconds)')
-
-        plt.tight_layout()
-        if save_path:
-            plt.savefig(save_path, bbox_inches='tight', dpi=300)
-        plt.show()
-
-
 def generate_embeddings(
         train_texts: List[str],
         test_texts: List[str],
@@ -484,23 +321,123 @@ def generate_embeddings(
     }
 
     # BERT embeddings
-    # logger.info("\nGenerating BERT embeddings...")
-    # start_time = time.time()
-    # bert_train = get_bert_embeddings(train_texts, embedding_size)
-    # train_time = time.time() - start_time
-    #
-    # start_time = time.time()
-    # bert_test = get_bert_embeddings(test_texts, embedding_size)
-    # inference_time = time.time() - start_time
-    #
-    # embeddings_dict['BERT'] = {
-    #     'train': bert_train,
-    #     'test': bert_test,
-    #     'train_time': train_time,
-    #     'inference_time': inference_time
-    # }
+    logger.info("\nGenerating BERT embeddings...")
+    start_time = time.time()
+    bert_train = get_bert_embeddings(train_texts, embedding_size)
+    train_time = time.time() - start_time
+
+    start_time = time.time()
+    bert_test = get_bert_embeddings(test_texts, embedding_size)
+    inference_time = time.time() - start_time
+
+    embeddings_dict['BERT'] = {
+        'train': bert_train,
+        'test': bert_test,
+        'train_time': train_time,
+        'inference_time': inference_time
+    }
 
     return embeddings_dict
+
+
+def plot_performance_comparison(results: List[Dict[str, Any]], save_path: str = None):
+    """
+    Create a bar plot comparing performance metrics across different models
+    Args:
+        results: list of evaluation results for different models
+        save_path: path to save the plot (optional)
+    """
+    # Extract metrics for comparison
+    performance_data = []
+    for result in results:
+        performance_data.append({
+            'Model': result['model_name'],
+            'Accuracy': result['accuracy'],
+            'Precision': result['precision'],
+            'Recall': result['recall'],
+            'F1 Score': result['f1_score']
+        })
+
+    # Convert to DataFrame for easier plotting
+    df = pd.DataFrame(performance_data)
+
+    # Set up the plot style
+    plt.style.use('seaborn')
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Create bar plot
+    metrics = ['Accuracy', 'Precision', 'Recall', 'F1 Score']
+    x = np.arange(len(df['Model']))
+    width = 0.2
+
+    # Plot bars for each metric
+    for i, metric in enumerate(metrics):
+        bars = ax.bar(x + i * width, df[metric], width, label=metric)
+
+        # Add value labels on top of bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2., height,
+                    f'{height:.3f}',
+                    ha='center', va='bottom')
+
+    # Customize plot
+    ax.set_ylabel('Score')
+    ax.set_title('Model Performance Comparison')
+    ax.set_xticks(x + width * 1.5)
+    ax.set_xticklabels(df['Model'])
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # Adjust layout to prevent label cutoff
+    plt.tight_layout()
+
+    # Save plot if path provided
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+
+    plt.show()
+
+
+def plot_confusion_matrices(results: List[Dict[str, Any]], save_path: str = None):
+    """
+    Create confusion matrix plots for all models
+    Args:
+        results: list of evaluation results for different models
+        save_path: path to save the plot (optional)
+    """
+    n_models = len(results)
+    fig, axes = plt.subplots(1, n_models, figsize=(6 * n_models, 5))
+
+    if n_models == 1:
+        axes = [axes]
+
+    plt.style.use('seaborn')
+
+    for ax, result in zip(axes, results):
+        conf_matrix = result['confusion_matrix']
+        model_name = result['model_name']
+
+        # Create confusion matrix heatmap
+        sns.heatmap(
+            conf_matrix,
+            annot=True,
+            fmt='d',
+            cmap='Blues',
+            ax=ax,
+            xticklabels=['Negative', 'Positive'],
+            yticklabels=['Negative', 'Positive']
+        )
+
+        ax.set_title(f'Confusion Matrix - {model_name}\nAccuracy: {result["accuracy"]:.3f}')
+        ax.set_xlabel('Predicted Label')
+        ax.set_ylabel('True Label')
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+
+    plt.show()
 
 
 def main():
@@ -540,7 +477,6 @@ def main():
 
         # 5. Evaluate each embedding technique with each classifier
         logger.info("Evaluating embedding techniques with different classifiers...")
-        embedding_results = []
         all_evaluation_results = []  # For confusion matrix visualization
 
         for embed_name, embed_data in embeddings_dict.items():
@@ -564,7 +500,6 @@ def main():
                 eval_result['inference_time'] = inference_time
                 eval_result['embedding_name'] = embed_name
 
-                embedding_results.append(eval_result)
                 all_evaluation_results.append(eval_result)
 
                 # Log individual model results
@@ -586,30 +521,7 @@ def main():
         performance_comparison_path = output_dir / 'performance_comparison.png'
         plot_performance_comparison(all_evaluation_results, str(performance_comparison_path))
 
-        # Embedding-specific performance comparison
-        embedding_performance_path = output_dir / 'embedding_performance.png'
-        comparison_df = EmbeddingEvaluator.compare_embeddings(embedding_results)
-        EmbeddingEvaluator.plot_performance_metrics(
-            comparison_df,
-            save_path=str(embedding_performance_path)
-        )
-
-        # 7. Save detailed results
-        results_path = output_dir / 'embedding_comparison_results.csv'
-        comparison_df.to_csv(results_path, index=False)
-
-        # 8. Print summary of best performers
-        logger.info("\nSummary of Best Performers:")
-        best_accuracy = comparison_df.loc[comparison_df['Accuracy'].idxmax()]
-        best_f1 = comparison_df.loc[comparison_df['F1 Score'].idxmax()]
-        fastest_training = comparison_df.loc[comparison_df['Training Time'].idxmin()]
-        fastest_inference = comparison_df.loc[comparison_df['Inference Time'].idxmin()]
-
-        logger.info(f"Best Accuracy: {best_accuracy['Embedding']} ({best_accuracy['Accuracy']:.4f})")
-        logger.info(f"Best F1 Score: {best_f1['Embedding']} ({best_f1['F1 Score']:.4f})")
-        logger.info(f"Fastest Training: {fastest_training['Embedding']} ({fastest_training['Training Time']:.4f}s)")
-        logger.info(f"Fastest Inference: {fastest_inference['Embedding']} ({fastest_inference['Inference Time']:.4f}s)")
-
+        # TODO: 8. Print summary of best performers
         logger.info(f"\nAll outputs saved in: {output_dir}")
 
     except Exception as e:
