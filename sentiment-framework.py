@@ -12,13 +12,14 @@ from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 import string
 import re
-from gensim.models import Word2Vec
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
 from sklearn.model_selection import GridSearchCV
 from sklearn.svm import LinearSVC
 from sklearn.linear_model import LogisticRegression
+from get_embeddings import get_bert_embeddings, get_fasttext_embeddings, get_word2vec_embeddings, train_fasttext
 import matplotlib.pyplot as plt
 import seaborn as sns
+import time
 
 # Set up logging
 logging.basicConfig(
@@ -157,84 +158,6 @@ class TextPreprocessor:
             list of processed texts
         """
         return [self.preprocess_text(text) for text in texts]
-
-
-class WordEmbedding:
-    """Word embedding class: converts text to vector representation using Skip-gram model"""
-
-    def __init__(self, embedding_size: int = 100, window: int = 5, min_count: int = 5):
-        """
-        Initialize word embedding model
-        Args:
-            embedding_size: word vector dimension
-            window: context window size
-            min_count: minimum word frequency
-        """
-        self.embedding_size = embedding_size
-        self.window = window
-        self.min_count = min_count
-        self.model = None
-        self.vocab = None
-
-    def _tokenize_texts(self, texts: List[str]) -> List[List[str]]:
-        """Convert list of texts to list of word lists"""
-        return [text.split() for text in texts]
-
-    def fit_transform(self, texts: List[str]) -> np.ndarray:
-        """
-        Train word embedding model and transform texts
-        Args:
-            texts: list of preprocessed texts
-        Returns:
-            vector representation of texts
-        """
-        # Convert texts to word lists
-        tokenized_texts = self._tokenize_texts(texts)
-
-        # Train Skip-gram model
-        self.model = Word2Vec(
-            sentences=tokenized_texts,
-            vector_size=self.embedding_size,
-            window=self.window,
-            min_count=self.min_count,
-            sg=1  # Use Skip-gram model
-        )
-
-        # Build vocabulary
-        self.vocab = self.model.wv.key_to_index
-
-        # Calculate document vectors (using average of word vectors)
-        return self._texts_to_vectors(texts)
-
-    def transform(self, texts: List[str]) -> np.ndarray:
-        """
-        Transform new texts using trained model
-        Args:
-            texts: list of preprocessed texts
-        Returns:
-            vector representation of texts
-        """
-        if self.model is None:
-            raise ValueError("Model not trained, please call fit_transform first")
-        return self._texts_to_vectors(texts)
-
-    def _texts_to_vectors(self, texts: List[str]) -> np.ndarray:
-        """Convert texts to vector representation"""
-        vectors = np.zeros((len(texts), self.embedding_size))
-
-        for i, text in enumerate(texts):
-            words = text.split()
-            word_vectors = []
-
-            for word in words:
-                if word in self.vocab:
-                    word_vectors.append(self.model.wv[word])
-
-            if word_vectors:
-                # Use average of word vectors as document vector
-                vectors[i] = np.mean(word_vectors, axis=0)
-
-        return vectors
 
 
 def plot_performance_comparison(results: List[Dict[str, Any]], save_path: str = None):
@@ -446,8 +369,143 @@ class ModelEvaluator:
         }
 
 
+class EmbeddingEvaluator:
+    """Evaluates and compares performance of different embedding techniques"""
+
+    @staticmethod
+    def compare_embeddings(
+            embedding_results: List[Dict[str, Any]]
+    ) -> pd.DataFrame:
+        """Compare performance metrics across embedding techniques"""
+        comparison_data = []
+
+        for result in embedding_results:
+            comparison_data.append({
+                'Embedding': result['embedding_name'],
+                'Accuracy': result['accuracy'],
+                'F1 Score': result['f1_score'],
+                'Training Time': result['training_time'],
+                'Inference Time': result['inference_time']
+            })
+
+        return pd.DataFrame(comparison_data)
+
+    @staticmethod
+    def plot_performance_metrics(
+            comparison_df: pd.DataFrame,
+            save_path: str = None
+    ):
+        """Create visualization of performance metrics"""
+        # Prepare the data
+        performance_data = comparison_df.melt(
+            id_vars=['Embedding'],
+            value_vars=['Accuracy', 'F1 Score', 'Training Time', 'Inference Time']
+        )
+
+        # Create the plot
+        plt.figure(figsize=(15, 6))
+
+        # Plot metrics in two separate subplots
+        plt.subplot(1, 2, 1)
+        performance_plot = sns.barplot(
+            data=performance_data[performance_data['variable'].isin(['Accuracy', 'F1 Score'])],
+            x='Embedding',
+            y='value',
+            hue='variable'
+        )
+        plt.title('Performance Metrics by Embedding Technique')
+        plt.ylabel('Score')
+
+        plt.subplot(1, 2, 2)
+        time_plot = sns.barplot(
+            data=performance_data[performance_data['variable'].isin(['Training Time', 'Inference Time'])],
+            x='Embedding',
+            y='value',
+            hue='variable'
+        )
+        plt.title('Time Comparison by Embedding Technique')
+        plt.ylabel('Time (seconds)')
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, bbox_inches='tight', dpi=300)
+        plt.show()
+
+
+def generate_embeddings(
+        train_texts: List[str],
+        test_texts: List[str],
+        embedding_size: int = 100
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Generate embeddings for both training and test sets using different techniques
+    Args:
+        train_texts: list of training texts
+        test_texts: list of test texts
+        embedding_size: dimension of embeddings (default: 100)
+    Returns:
+        dictionary with embedding results
+    """
+    embeddings_dict = {}
+
+    # Word2Vec embeddings
+    logger.info("\nGenerating Word2Vec embeddings...")
+    start_time = time.time()
+    word2vec_train = get_word2vec_embeddings(train_texts, embedding_size=embedding_size)
+    train_time = time.time() - start_time
+
+    start_time = time.time()
+    word2vec_test = get_word2vec_embeddings(test_texts, embedding_size=embedding_size)
+    inference_time = time.time() - start_time
+
+    embeddings_dict['Word2Vec'] = {
+        'train': word2vec_train,
+        'test': word2vec_test,
+        'train_time': train_time,
+        'inference_time': inference_time
+    }
+
+    # FastText embeddings
+    logger.info("\nGenerating FastText embeddings...")
+    start_time = time.time()
+    fasttext_model = train_fasttext(train_texts, embedding_size=embedding_size)
+    fasttext_train = get_fasttext_embeddings(train_texts, fasttext_model, embedding_size)
+    train_time = time.time() - start_time
+
+    start_time = time.time()
+    fasttext_test = get_fasttext_embeddings(test_texts, fasttext_model, embedding_size)
+    inference_time = time.time() - start_time
+
+    embeddings_dict['FastText'] = {
+        'train': fasttext_train,
+        'test': fasttext_test,
+        'train_time': train_time,
+        'inference_time': inference_time
+    }
+
+    # BERT embeddings
+    # logger.info("\nGenerating BERT embeddings...")
+    # start_time = time.time()
+    # bert_train = get_bert_embeddings(train_texts, embedding_size)
+    # train_time = time.time() - start_time
+    #
+    # start_time = time.time()
+    # bert_test = get_bert_embeddings(test_texts, embedding_size)
+    # inference_time = time.time() - start_time
+    #
+    # embeddings_dict['BERT'] = {
+    #     'train': bert_train,
+    #     'test': bert_test,
+    #     'train_time': train_time,
+    #     'inference_time': inference_time
+    # }
+
+    return embeddings_dict
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Process IMDB dataset into CSV format')
+    """Main function incorporating both sentiment analysis and embedding comparison"""
+    parser = argparse.ArgumentParser(description='Process IMDB dataset with multiple embedding techniques')
     parser.add_argument('--base_dir', default='./aclImdb', help='Path to aclImdb directory')
     parser.add_argument('--embedding_size', type=int, default=100, help='Word embedding dimension size')
     parser.add_argument('--output_dir', default='./outputs', help='Directory to save outputs')
@@ -457,65 +515,102 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    DATA_DIR = args.base_dir
-    EMBEDDING_SIZE = args.embedding_size
-
     try:
-        # 1. Initialize data loader and preprocessor
-        logger.info("Initializing...")
-        data_loader = DataLoader(DATA_DIR)
+        # 1. Initialize components
+        logger.info("Initializing components...")
+        data_loader = DataLoader(args.base_dir)
         preprocessor = TextPreprocessor()
 
-        # 2. Load data
-        logger.info("Starting data loading...")
+        # 2. Load and preprocess data
+        logger.info("Loading and preprocessing data...")
         train_texts, train_labels, test_texts, test_labels = data_loader.load_data(preprocessor)
 
-        # 3. Word embedding
-        logger.info("Starting word embedding conversion...")
-        embedder = WordEmbedding(embedding_size=EMBEDDING_SIZE)
-        X_train = embedder.fit_transform(train_texts)
-        X_test = embedder.transform(test_texts)
-
-        # 4. Initialize different classifiers
+        # 3. Generate embeddings using different techniques
+        logger.info("Generating embeddings using different techniques...")
+        embeddings_dict = generate_embeddings(
+            train_texts,
+            test_texts,
+            embedding_size=args.embedding_size
+        )
+        # 4. Initialize classifiers
         classifiers = [
             SentimentClassifier(LinearSVC(), "SVM"),
             SentimentClassifier(LogisticRegression(), "Logistic Regression"),
         ]
 
-        # 5. Train and evaluate all classifiers
-        evaluation_results = []
+        # 5. Evaluate each embedding technique with each classifier
+        logger.info("Evaluating embedding techniques with different classifiers...")
+        embedding_results = []
+        all_evaluation_results = []  # For confusion matrix visualization
 
-        for classifier in classifiers:
-            logger.info(f"Training {classifier.model_name}...")
-            train_results = classifier.train(X_train, train_labels)
+        for embed_name, embed_data in embeddings_dict.items():
+            for classifier in classifiers:
+                model_name = f"{embed_name}-{classifier.model_name}"
+                logger.info(f"Training {model_name}...")
 
-            logger.info(f"Evaluating {classifier.model_name}...")
-            y_pred = classifier.predict(X_test)
-            eval_result = ModelEvaluator.evaluate(test_labels, y_pred, classifier.model_name)
-            evaluation_results.append(eval_result)
+                # Train classifier
+                start_time = time.time()
+                train_results = classifier.train(embed_data['train'], train_labels)
+                training_time = time.time() - start_time
 
-            # Log individual model results
-            logger.info(f"\nResults for {classifier.model_name}:")
-            for metric, value in eval_result.items():
-                if isinstance(value, np.ndarray):
-                    logger.info(f"{metric}:\n{value}")
-                elif isinstance(value, str):
-                    logger.info(f"{metric}: {value}")
-                else:
-                    logger.info(f"{metric}: {value:.4f}")
+                # Make predictions
+                start_time = time.time()
+                y_pred = classifier.predict(embed_data['test'])
+                inference_time = time.time() - start_time
 
-        # 6. Create and save visualizations
-        logger.info("Creating visualizations...")
+                # Evaluate results
+                eval_result = ModelEvaluator.evaluate(test_labels, y_pred, model_name)
+                eval_result['training_time'] = training_time
+                eval_result['inference_time'] = inference_time
+                eval_result['embedding_name'] = embed_name
 
-        # Plot and save confusion matrices
+                embedding_results.append(eval_result)
+                all_evaluation_results.append(eval_result)
+
+                # Log individual model results
+                logger.info(f"Results for {model_name}:")
+                for metric, value in eval_result.items():
+                    if isinstance(value, (np.ndarray, str)):
+                        logger.info(f"{metric}:\n{value}")
+                    else:
+                        logger.info(f"{metric}: {value:.4f}")
+
+        # 6. Create performance comparisons and visualizations
+        logger.info("\nCreating performance visualizations...")
+
+        # Confusion matrices
         confusion_matrices_path = output_dir / 'confusion_matrices.png'
-        plot_confusion_matrices(evaluation_results, str(confusion_matrices_path))
+        plot_confusion_matrices(all_evaluation_results, str(confusion_matrices_path))
 
-        # Plot and save performance comparison
+        # Performance comparison
         performance_comparison_path = output_dir / 'performance_comparison.png'
-        plot_performance_comparison(evaluation_results, str(performance_comparison_path))
+        plot_performance_comparison(all_evaluation_results, str(performance_comparison_path))
 
-        logger.info(f"Visualizations saved in: {output_dir}")
+        # Embedding-specific performance comparison
+        embedding_performance_path = output_dir / 'embedding_performance.png'
+        comparison_df = EmbeddingEvaluator.compare_embeddings(embedding_results)
+        EmbeddingEvaluator.plot_performance_metrics(
+            comparison_df,
+            save_path=str(embedding_performance_path)
+        )
+
+        # 7. Save detailed results
+        results_path = output_dir / 'embedding_comparison_results.csv'
+        comparison_df.to_csv(results_path, index=False)
+
+        # 8. Print summary of best performers
+        logger.info("\nSummary of Best Performers:")
+        best_accuracy = comparison_df.loc[comparison_df['Accuracy'].idxmax()]
+        best_f1 = comparison_df.loc[comparison_df['F1 Score'].idxmax()]
+        fastest_training = comparison_df.loc[comparison_df['Training Time'].idxmin()]
+        fastest_inference = comparison_df.loc[comparison_df['Inference Time'].idxmin()]
+
+        logger.info(f"Best Accuracy: {best_accuracy['Embedding']} ({best_accuracy['Accuracy']:.4f})")
+        logger.info(f"Best F1 Score: {best_f1['Embedding']} ({best_f1['F1 Score']:.4f})")
+        logger.info(f"Fastest Training: {fastest_training['Embedding']} ({fastest_training['Training Time']:.4f}s)")
+        logger.info(f"Fastest Inference: {fastest_inference['Embedding']} ({fastest_inference['Inference Time']:.4f}s)")
+
+        logger.info(f"\nAll outputs saved in: {output_dir}")
 
     except Exception as e:
         logger.error(f"Program execution error: {str(e)}")
