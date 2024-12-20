@@ -10,7 +10,7 @@ This project demonstrates a simple machine learning model designed to analyze us
 The results of the analysis are summarized in the image below:  
 
 <p align="center">  
-  <img src="https://github.com/Radiance-nt/Simple-SentimentAnalysis-LargeMovieReview/blob/os/result.jpg?raw=true" alt="Model Performance Result">  
+  <img src="https://github.com/Radiance-nt/Simple-SentimentAnalysis-LargeMovieReview/blob/master/result.jpg?raw=true" alt="Model Performance Result">  
 </p>  
 
 ---
